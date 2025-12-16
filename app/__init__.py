@@ -1,0 +1,2 @@
+"""Transcription microservice application."""
+
