@@ -1,0 +1,68 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            set -e
+
+            DEPLOY_DIR="/srv/transcription-service"
+
+            # Clone if first deploy, otherwise pull
+            if [ ! -d "$DEPLOY_DIR" ]; then
+              git clone https://github.com/likesoftio/transcription-service.git "$DEPLOY_DIR"
+            fi
+
+            cd "$DEPLOY_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Ensure .env exists
+            if [ ! -f .env ]; then
+              cp env.example .env
+              echo "WARNING: Created .env from env.example — update DEEPGRAM_API_KEY!"
+            fi
+
+            # Setup host nginx (first deploy only)
+            NGINX_CONF="/etc/nginx/sites-available/transcription-service"
+            if [ ! -f "$NGINX_CONF" ] && [ -d /etc/nginx/sites-available ]; then
+              cp nginx/transcription-service.conf "$NGINX_CONF"
+              ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/transcription-service
+              nginx -t && systemctl reload nginx
+              echo "Nginx site config installed"
+            elif [ -f "$NGINX_CONF" ]; then
+              # Update nginx config if changed
+              if ! diff -q nginx/transcription-service.conf "$NGINX_CONF" > /dev/null 2>&1; then
+                cp nginx/transcription-service.conf "$NGINX_CONF"
+                nginx -t && systemctl reload nginx
+                echo "Nginx config updated"
+              fi
+            fi
+
+            # Build and deploy
+            docker compose up --build -d --remove-orphans
+
+            # Wait for services to start
+            sleep 5
+            docker compose ps
+
+            # Health check
+            echo "--- Health check ---"
+            curl -sf http://localhost:8000/api/v1/health || echo "API health check failed (may still be starting)"
