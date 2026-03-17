@@ -1,0 +1,92 @@
+.drop-zone {
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-lg);
+  padding: 52px 32px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.drop-zone::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, var(--amber-glow), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+
+.drop-zone:hover,
+.drop-zone.drag-over {
+  border-color: var(--amber-dim);
+  background: var(--bg-elevated);
+}
+
+.drop-zone:hover::after,
+.drop-zone.drag-over::after {
+  opacity: 1;
+}
+
+.drop-zone-icon {
+  font-size: 2.4rem;
+  margin-bottom: 12px;
+  display: block;
+  color: var(--text-muted);
+  transition: color 0.25s;
+}
+
+.drop-zone:hover .drop-zone-icon {
+  color: var(--amber);
+}
+
+.drop-zone-text {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.drop-zone-text strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.drop-zone-hint {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+.drop-zone input[type='file'] {
+  display: none;
+}
+
+.waveform-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  margin: 18px auto 0;
+  width: 200px;
+  height: 20px;
+  opacity: 0.4;
+}
+
+.waveform-bar span {
+  display: block;
+  width: 2px;
+  background: var(--amber);
+  border-radius: 1px;
+  animation: wave 1.8s ease-in-out infinite alternate;
+}
+
+@media (max-width: 600px) {
+  .drop-zone {
+    padding: 36px 20px;
+  }
+}

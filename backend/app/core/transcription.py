@@ -1,6 +1,5 @@
 """Transcription service using Deepgram API."""
 import logging
-import io
 from typing import Dict, Optional
 from deepgram import DeepgramClient, PrerecordedOptions
 
@@ -65,10 +64,9 @@ class TranscriptionService:
                 language=language,
             )
             
-            # Perform transcription using bytes buffer
-            audio_buffer = io.BytesIO(audio_data)
+            # Perform transcription using raw bytes
             response = self.client.listen.prerecorded.v("1").transcribe_file(
-                {"buffer": audio_buffer},
+                {"buffer": audio_data, "mimetype": "audio/wav"},
                 options
             )
             

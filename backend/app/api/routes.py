@@ -1,5 +1,7 @@
 """API routes for transcription service."""
 import logging
+import os
+import shutil
 from datetime import datetime, timedelta
 from typing import List
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
@@ -17,12 +19,14 @@ from app.api.schemas import (
 from app.core.storage import get_storage
 from app.core.queue import celery_app
 from app.core.tasks import transcribe_file_task
-from app.config import settings
+from app.config import settings, ALLOWED_EXTENSIONS
 from app.models.task import TranscriptionTask, FileStatus
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["transcription"])
+
+UPLOAD_DIR = "/app/uploads"
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -92,28 +96,42 @@ async def transcribe_batch(
     # Validate and add files
     file_responses = []
     for file in files:
-        # Validate file size
-        file_content = await file.read()
-        file_size_mb = len(file_content) / (1024 * 1024)
-        
-        if file_size_mb > settings.MAX_FILE_SIZE_MB:
+        # Validate file extension
+        filename = file.filename or ""
+        _, ext = os.path.splitext(filename)
+        ext = ext.lower()
+        if not ext or ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(
                 status_code=400,
-                detail=f"File {file.filename} exceeds maximum size of {settings.MAX_FILE_SIZE_MB}MB"
+                detail=f"Unsupported format '{ext}' for '{filename}'. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
             )
-        
+
         # Add file to task
         file_id = task.add_file(file.filename)
-        
-        # Encode audio data as base64 for Celery serialization
-        import base64
-        audio_data_base64 = base64.b64encode(file_content).decode('utf-8')
-        
-        # Create Celery task
+
+        # Stream file to shared upload directory
+        task_upload_dir = os.path.join(UPLOAD_DIR, task.task_id)
+        os.makedirs(task_upload_dir, exist_ok=True)
+        file_path = os.path.join(task_upload_dir, file_id)
+
+        file_size = 0
+        with open(file_path, "wb") as out:
+            while chunk := await file.read(1024 * 1024):  # 1MB chunks
+                file_size += len(chunk)
+                if file_size > settings.MAX_FILE_SIZE_MB * 1024 * 1024:
+                    out.close()
+                    os.unlink(file_path)
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"File {file.filename} exceeds maximum size of {settings.MAX_FILE_SIZE_MB}MB"
+                    )
+                out.write(chunk)
+
+        # Create Celery task with file path instead of base64
         transcribe_file_task.delay(
             task_id=task.task_id,
             file_id=file_id,
-            audio_data_base64=audio_data_base64,
+            file_path=file_path,
             filename=file.filename,
             options=final_options
         )

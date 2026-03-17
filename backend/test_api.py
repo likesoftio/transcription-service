@@ -30,7 +30,15 @@ def main():
     if not input_dir.exists():
         input_dir = Path("input")
     
-    files = [f for f in input_dir.rglob("*.wav") if f.stat().st_size > 100000][:2]  # > 100KB
+    SUPPORTED_EXTENSIONS = {
+        ".mp3", ".mp4", ".mp2", ".aac", ".wav", ".flac", ".pcm",
+        ".m4a", ".ogg", ".opus", ".webm", ".amr", ".3gp", ".wma",
+        ".mov", ".avi", ".wmv", ".flv", ".mkv", ".mpeg", ".mpg",
+    }
+    files = [
+        f for f in input_dir.rglob("*")
+        if f.suffix.lower() in SUPPORTED_EXTENSIONS and f.stat().st_size > 100000
+    ][:2]  # > 100KB
     
     if not files:
         print("❌ Не найдено подходящих файлов (>100KB)")
@@ -46,7 +54,7 @@ def main():
     try:
         file_data = []
         for f in files:
-            file_data.append(("files", (f.name, open(f, "rb"), "audio/wav")))
+            file_data.append(("files", (f.name, open(f, "rb"), "application/octet-stream")))
         
         options = {
             "model": "nova-2",

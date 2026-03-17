@@ -6,7 +6,7 @@ services:
     container_name: transcription-redis
     restart: unless-stopped
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     networks:
@@ -18,21 +18,23 @@ services:
       retries: 5
 
   transcription-api:
-    build: .
+    build: ./backend
     container_name: transcription-api
     restart: unless-stopped
     depends_on:
       redis:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - uploads_data:/app/uploads
     environment:
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY}
       REDIS_HOST: redis
-      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PORT: 6379
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       STORAGE_TTL_HOURS: ${STORAGE_TTL_HOURS:-24}
-      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-100}
+      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-2000}
       MAX_FILES_PER_BATCH: ${MAX_FILES_PER_BATCH:-50}
       WEBHOOK_TIMEOUT_SECONDS: ${WEBHOOK_TIMEOUT_SECONDS:-30}
       CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-3}
@@ -43,23 +45,23 @@ services:
       API_HOST: ${API_HOST:-0.0.0.0}
       API_PORT: ${API_PORT:-8000}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-    ports:
-      - "${API_PORT:-8000}:8000"
     networks:
       - transcription-network
 
   transcription-worker-1:
-    build: .
+    build: ./backend
     container_name: transcription-worker-1
     restart: unless-stopped
     depends_on:
       redis:
         condition: service_healthy
     command: celery -A app.core.queue worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-3} --queues=transcription -n worker1@%h
+    volumes:
+      - uploads_data:/app/uploads
     environment:
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY}
       REDIS_HOST: redis
-      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PORT: 6379
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       STORAGE_TTL_HOURS: ${STORAGE_TTL_HOURS:-24}
@@ -73,17 +75,19 @@ services:
       - transcription-network
 
   transcription-worker-2:
-    build: .
+    build: ./backend
     container_name: transcription-worker-2
     restart: unless-stopped
     depends_on:
       redis:
         condition: service_healthy
     command: celery -A app.core.queue worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-3} --queues=transcription -n worker2@%h
+    volumes:
+      - uploads_data:/app/uploads
     environment:
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY}
       REDIS_HOST: redis
-      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PORT: 6379
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       STORAGE_TTL_HOURS: ${STORAGE_TTL_HOURS:-24}
@@ -97,17 +101,19 @@ services:
       - transcription-network
 
   transcription-worker-3:
-    build: .
+    build: ./backend
     container_name: transcription-worker-3
     restart: unless-stopped
     depends_on:
       redis:
         condition: service_healthy
     command: celery -A app.core.queue worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-3} --queues=transcription -n worker3@%h
+    volumes:
+      - uploads_data:/app/uploads
     environment:
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY}
       REDIS_HOST: redis
-      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PORT: 6379
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       STORAGE_TTL_HOURS: ${STORAGE_TTL_HOURS:-24}
@@ -121,7 +127,7 @@ services:
       - transcription-network
 
   celery-flower:
-    build: .
+    build: ./backend
     container_name: transcription-flower
     restart: unless-stopped
     depends_on:
@@ -136,11 +142,23 @@ services:
     networks:
       - transcription-network
 
+  frontend:
+    build: ./frontend
+    container_name: transcription-frontend
+    restart: unless-stopped
+    depends_on:
+      - transcription-api
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    networks:
+      - transcription-network
+
 volumes:
   redis_data:
+    driver: local
+  uploads_data:
     driver: local
 
 networks:
   transcription-network:
     driver: bridge
-

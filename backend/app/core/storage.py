@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict
 import redis
 from app.config import settings
-from app.models.task import TranscriptionTask
+from app.models.task import TranscriptionTask, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -30,19 +30,20 @@ class Storage:
             task_dict = {
                 'task_id': task.task_id,
                 'status': task.status.value,
-                'webhook_url': task.webhook_url,
+                'webhook_url': task.webhook_url or '',
                 'options': json.dumps(task.options),
                 'created_at': task.created_at.isoformat(),
                 'updated_at': task.updated_at.isoformat(),
-                'error': task.error,
+                'error': task.error or '',
             }
             
             # Save task metadata
             self.redis_client.hset(key, mapping=task_dict)
             self.redis_client.expire(key, self.ttl_seconds)
             
-            # Save files list
+            # Save files list (replace entirely to avoid stale entries)
             files_key = f"task:{task.task_id}:files"
+            self.redis_client.delete(files_key)
             files_data = []
             for file_info in task.files:
                 files_data.append(json.dumps({
@@ -51,7 +52,7 @@ class Storage:
                     'status': file_info.status.value,
                     'error': file_info.error,
                 }))
-            
+
             if files_data:
                 self.redis_client.sadd(files_key, *files_data)
                 self.redis_client.expire(files_key, self.ttl_seconds)
@@ -77,7 +78,7 @@ class Storage:
                 webhook_url=task_data.get('webhook_url'),
                 options=json.loads(task_data.get('options', '{}'))
             )
-            task.status = task_data['status']
+            task.status = TaskStatus(task_data['status'])
             task.created_at = datetime.fromisoformat(task_data['created_at'])
             task.updated_at = datetime.fromisoformat(task_data['updated_at'])
             task.error = task_data.get('error')
@@ -146,39 +147,34 @@ class Storage:
             if not task:
                 logger.warning(f"Task {task_id} not found")
                 return
-            
+
             file_info = task.get_file(file_id)
             if not file_info:
                 logger.warning(f"File {file_id} not found in task {task_id}")
                 return
-            
+
             from app.models.task import FileStatus
             file_info.status = FileStatus(status)
             file_info.error = error
-            
-            # Update files list in Redis
+
+            # Rewrite the entire files set (avoids stale entries from srem mismatch)
             files_key = f"task:{task_id}:files"
-            # Remove old entry
-            old_data = json.dumps({
-                'file_id': file_info.file_id,
-                'filename': file_info.filename,
-                'status': file_info.status.value,
-                'error': file_info.error,
-            })
-            self.redis_client.srem(files_key, old_data)
-            
-            # Add updated entry
-            new_data = json.dumps({
-                'file_id': file_info.file_id,
-                'filename': file_info.filename,
-                'status': file_info.status.value,
-                'error': file_info.error,
-            })
-            self.redis_client.sadd(files_key, new_data)
-            
-            # Save updated task
+            self.redis_client.delete(files_key)
+            files_data = []
+            for f in task.files:
+                files_data.append(json.dumps({
+                    'file_id': f.file_id,
+                    'filename': f.filename,
+                    'status': f.status.value,
+                    'error': f.error,
+                }))
+            if files_data:
+                self.redis_client.sadd(files_key, *files_data)
+                self.redis_client.expire(files_key, self.ttl_seconds)
+
+            # Save updated task metadata
             self.save_task(task)
-            
+
             logger.debug(f"Updated file {file_id} status to {status}")
         except Exception as e:
             logger.error(f"Error updating file status {file_id}: {e}", exc_info=True)

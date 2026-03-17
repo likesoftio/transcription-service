@@ -49,3 +49,11 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+ALLOWED_EXTENSIONS = {
+    # Audio
+    ".mp3", ".mp4", ".mp2", ".aac", ".wav", ".flac", ".pcm",
+    ".m4a", ".ogg", ".opus", ".webm", ".amr", ".3gp", ".wma",
+    # Video (ffmpeg will extract audio track)
+    ".mov", ".avi", ".wmv", ".flv", ".mkv", ".mpeg", ".mpg",
+}
+

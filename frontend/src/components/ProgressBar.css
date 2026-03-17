@@ -1,0 +1,35 @@
+.upload-section {
+  margin-top: 32px;
+  animation: fadeSlide 0.4s ease;
+}
+
+.upload-section-label {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.progress-container {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  overflow: hidden;
+  height: 6px;
+  margin-top: 10px;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--amber-dim), var(--amber));
+  transition: width 0.3s ease;
+  border-radius: var(--radius);
+}
+
+.progress-label {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+}

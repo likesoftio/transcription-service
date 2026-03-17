@@ -1,0 +1,148 @@
+.task-section {
+  margin-top: 40px;
+  animation: fadeSlide 0.4s ease;
+}
+
+.task-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.task-header h2 {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.task-id {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+}
+
+.overall-progress {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  margin-bottom: 24px;
+}
+
+.overall-progress-text {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.overall-progress-text span {
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.overall-progress .progress-container {
+  flex: 1;
+  margin: 0;
+}
+
+.file-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 32px;
+}
+
+.file-card {
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.file-card:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+
+.file-card.active {
+  border-color: var(--amber-dim);
+  background: var(--bg-elevated);
+}
+
+.file-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.file-card-name {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-card-meta {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.badge {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.badge-queued {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.badge-processing {
+  background: var(--blue-dim);
+  color: var(--blue);
+  animation: pulse 2s ease infinite;
+}
+
+.badge-completed {
+  background: var(--green-dim);
+  color: var(--green);
+}
+
+.badge-failed {
+  background: var(--red-dim);
+  color: var(--red);
+}
+
+@media (max-width: 600px) {
+  .task-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .overall-progress {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

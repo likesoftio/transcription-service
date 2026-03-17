@@ -1,157 +1,143 @@
-# Transcription Microservice
+# Transcription Service
 
-Микросервис для пакетной транскрибации аудиофайлов с использованием Deepgram API.
+Монорепа: React-фронтенд + FastAPI-бэкенд для пакетной транскрибации аудио/видео через Deepgram API.
 
 ## Возможности
 
-- Пакетная загрузка файлов через multipart/form-data
-- Асинхронная обработка через Celery
-- Поддержка множественных воркеров для горизонтального масштабирования
-- Webhook уведомления о завершении транскрибации
-- Polling API для проверки статуса задач
-- Rate limiting для контроля нагрузки на Deepgram API
+- Drag-and-drop загрузка файлов через веб-интерфейс
+- Пакетная обработка через Celery + Redis
+- Горизонтальное масштабирование воркеров
+- Автоконвертация аудио/видео в WAV через ffmpeg
+- Диаризация спикеров, разбивка по фрагментам
+- Webhook уведомления + polling API
+- Rate limiting для Deepgram API
 
-## Архитектура
+## Структура
 
 ```
-API (FastAPI) → Redis Queue → Celery Workers → Deepgram API
+transcription-service/
+├── backend/                  # FastAPI + Celery
+│   ├── app/
+│   │   ├── api/              # Endpoints + Pydantic schemas
+│   │   ├── core/             # Celery, Deepgram, Redis, ffmpeg
+│   │   └── models/           # Domain models
+│   ├── Dockerfile
+│   └── requirements.txt
+├── frontend/                 # React + TypeScript + Vite
+│   ├── src/
+│   │   ├── components/       # DropZone, FileList, TaskStatus, TranscriptViewer
+│   │   ├── hooks/            # useTranscription
+│   │   └── api/              # Typed API client
+│   ├── Dockerfile            # Multi-stage: Node build → Nginx
+│   └── nginx.conf            # Прокси /api/ → backend
+└── docker-compose.yml
 ```
 
 ## Быстрый старт
 
 ### 1. Настройка окружения
 
-Создайте `.env` файл:
-
-```env
-DEEPGRAM_API_KEY=your_api_key_here
-REDIS_HOST=redis
-REDIS_PORT=6379
-CELERY_BROKER_URL=redis://redis:6379/0
-CELERY_RESULT_BACKEND=redis://redis:6379/1
-STORAGE_TTL_HOURS=24
-MAX_FILE_SIZE_MB=100
-MAX_FILES_PER_BATCH=50
-CELERY_WORKER_CONCURRENCY=3
-CELERY_TASK_RATE_LIMIT=10/m
+```bash
+cp env.example .env
+# Отредактируйте .env — укажите DEEPGRAM_API_KEY
 ```
 
-### 2. Запуск через Docker Compose
+### 2. Запуск
 
 ```bash
-cd transcription-service
 docker-compose up -d
 ```
 
-Это запустит:
-- API сервер на порту 8000
-- Redis
-- 3 Celery воркера
-- Celery Flower (мониторинг) на порту 5555
+Сервисы:
+- **Фронтенд:** http://localhost:3000
+- **Celery Flower:** http://localhost:5555
+- **API (внутренний):** http://localhost:8000
 
 ### 3. Масштабирование воркеров
 
-Для запуска большего количества воркеров:
-
 ```bash
-# Фиксированное количество
-docker-compose up -d transcription-worker-1 transcription-worker-2 transcription-worker-3
-
-# Или через scale (если используете один сервис)
 docker-compose up -d --scale transcription-worker=5
 ```
 
-## API Endpoints
+## Локальная разработка
 
-### POST /api/v1/transcribe/batch
+```bash
+# Backend
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+celery -A app.core.queue worker --loglevel=info --queues=transcription
+
+# Frontend
+cd frontend
+npm install
+npm run dev    # http://localhost:5173, проксирует /api → localhost:8000
+```
+
+## API
+
+Все эндпоинты под `/api/v1`:
+
+### POST /transcribe/batch
 
 Загрузка файлов для транскрибации.
 
-**Request:**
 ```bash
 curl -X POST "http://localhost:8000/api/v1/transcribe/batch" \
   -F "files=@audio1.wav" \
   -F "files=@audio2.wav" \
-  -F 'options={"model":"nova-2","language":"ru","diarize":true}' \
-  -F "webhook_url=https://example.com/webhook"
+  -F 'options={"model":"nova-2","language":"ru","diarize":true}'
 ```
 
-**Response:**
 ```json
 {
-  "task_id": "uuid-here",
+  "task_id": "uuid",
   "status": "queued",
   "files_count": 2,
-  "files": [
-    {
-      "file_id": "file-uuid-1",
-      "filename": "audio1.wav",
-      "status": "queued"
-    }
-  ],
-  "estimated_completion_time": "2025-12-16T20:00:00Z"
+  "files": [{"file_id": "...", "filename": "audio1.wav", "status": "queued"}]
 }
 ```
 
-### GET /api/v1/transcribe/status/{task_id}
+### GET /transcribe/status/{task_id}
 
-Проверка статуса задачи.
-
-**Response:**
 ```json
 {
-  "task_id": "uuid-here",
+  "task_id": "uuid",
   "status": "processing",
-  "progress": {
-    "total": 2,
-    "completed": 1,
-    "failed": 0,
-    "processing": 1,
-    "queued": 0
-  },
-  "files": [...],
-  "created_at": "2025-12-16T19:00:00Z",
-  "updated_at": "2025-12-16T19:05:00Z"
+  "progress": {"total": 2, "completed": 1, "failed": 0, "processing": 1, "queued": 0},
+  "files": [...]
 }
 ```
 
-### GET /api/v1/transcribe/result/{file_id}
+### GET /transcribe/result/{file_id}
 
-Получение результата транскрибации конкретного файла.
+Результат транскрибации файла (transcript, speakers_transcript, chunks_transcript).
 
-### POST /api/v1/webhook/register
+### POST /webhook/register
 
-Регистрация webhook URL для уведомлений.
+Регистрация webhook URL для уведомлений о завершении.
 
-### GET /api/v1/health
+### GET /health
 
-Health check с информацией о количестве активных воркеров.
-
-## Мониторинг
-
-- **Celery Flower:** http://localhost:5555
-- **Health Check:** http://localhost:8000/api/v1/health
+Health check + количество активных воркеров.
 
 ## Конфигурация
 
-Все настройки через переменные окружения (см. `.env` пример выше).
+| Переменная | Описание | По умолчанию |
+|---|---|---|
+| `DEEPGRAM_API_KEY` | API ключ Deepgram | — |
+| `CELERY_BROKER_URL` | Redis URL (брокер) | `redis://redis:6379/0` |
+| `CELERY_RESULT_BACKEND` | Redis URL (результаты) | `redis://redis:6379/1` |
+| `STORAGE_TTL_HOURS` | Время хранения результатов | `24` |
+| `MAX_FILE_SIZE_MB` | Макс. размер файла | `100` |
+| `MAX_FILES_PER_BATCH` | Макс. файлов в пакете | `50` |
+| `CELERY_TASK_RATE_LIMIT` | Rate limit задач | `10/m` |
+| `DEFAULT_MODEL` | Модель Deepgram | `nova-2` |
+| `DEFAULT_LANGUAGE` | Язык транскрибации | `ru` |
+| `FRONTEND_PORT` | Порт фронтенда | `3000` |
 
-## Разработка
+## Поддерживаемые форматы
 
-### Локальный запуск
+**Аудио:** mp3, wav, flac, aac, ogg, opus, m4a, webm, pcm, mp2, amr, 3gp, wma
 
-```bash
-# Установка зависимостей
-pip install -r requirements.txt
-
-# Запуск API
-uvicorn app.main:app --reload
-
-# Запуск воркера (в отдельном терминале)
-celery -A app.core.queue worker --loglevel=info --queues=transcription
-```
-
-## Интеграция с основным приложением
-
-Основное приложение может вызывать микросервис через HTTP API вместо прямого использования Deepgram SDK.
-
+**Видео:** mp4, mov, avi, wmv, flv, mkv, mpeg, mpg

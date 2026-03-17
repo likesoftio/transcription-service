@@ -4,6 +4,7 @@ import httpx
 from celery import Task
 from app.core.queue import celery_app
 from app.core.transcription import TranscriptionService
+from app.core.converter import convert_to_wav
 from app.core.storage import get_storage
 from app.config import settings
 
@@ -21,14 +22,28 @@ def get_transcription_service() -> TranscriptionService:
     return _transcription_service
 
 
+def _is_retryable_error(exc: Exception) -> bool:
+    """Check if an error is retryable (not a permanent client error)."""
+    exc_str = str(exc).lower()
+    # Non-retryable: auth errors, bad request, forbidden
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status in (400, 401, 403):
+            return False
+    for code in ('400', '401', '403', 'unauthorized', 'forbidden', 'invalid api key'):
+        if code in exc_str:
+            return False
+    return True
+
+
 class TranscriptionTask(Task):
     """Custom task class with error handling."""
-    
+
     def on_failure(self, exc, task_id, args, kwargs, einfo):
         """Handle task failure."""
         file_id = kwargs.get('file_id') if kwargs else None
         task_id_db = kwargs.get('task_id') if kwargs else None
-        
+
         if file_id and task_id_db:
             try:
                 storage = get_storage()
@@ -48,40 +63,57 @@ class TranscriptionTask(Task):
     base=TranscriptionTask,
     name='app.core.tasks.transcribe_file_task',
     max_retries=3,
-    default_retry_delay=60,
+    default_retry_delay=30,
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
 )
 def transcribe_file_task(
     self,
     task_id: str,
     file_id: str,
-    audio_data_base64: str,
+    file_path: str,
     filename: str,
-    options: dict
+    options: dict,
+    audio_data_base64: str = None,
 ) -> bool:
     """
     Transcribe a single file.
-    
+
     Args:
         task_id: Task ID
         file_id: File ID
-        audio_data_base64: Audio file bytes encoded as base64 string
+        file_path: Path to uploaded file on shared volume
         filename: Original filename
         options: Transcription options
-        
+        audio_data_base64: (deprecated) base64-encoded audio data
+
     Returns:
         True if successful, False otherwise
     """
-    import base64
-    
+    import os
+
     storage = get_storage()
-    
+
     try:
         # Update status to processing
         storage.update_file_status(task_id, file_id, 'processing')
-        
-        # Decode base64 audio data
-        audio_data = base64.b64decode(audio_data_base64)
-        
+
+        # Read audio data from file
+        if file_path and os.path.exists(file_path):
+            with open(file_path, 'rb') as f:
+                audio_data = f.read()
+            # Clean up uploaded file
+            os.unlink(file_path)
+        elif audio_data_base64:
+            import base64
+            audio_data = base64.b64decode(audio_data_base64)
+        else:
+            raise FileNotFoundError(f"Upload file not found: {file_path}")
+
+        # Convert to WAV via ffmpeg
+        audio_data = convert_to_wav(audio_data, filename)
+
         # Get transcription service
         transcription_service = get_transcription_service()
         
@@ -130,24 +162,26 @@ def transcribe_file_task(
         
     except Exception as exc:
         logger.error(f"Error in transcribe_file_task for file {file_id}: {exc}", exc_info=True)
-        
+
         # Update status to error
         try:
             storage.update_file_status(task_id, file_id, 'failed', str(exc))
         except Exception as e:
             logger.error(f"Failed to update error status: {e}")
-        
+
         # Check if task is complete and send webhook if needed
         task = storage.get_task(task_id)
         if task:
             task.update_status()
             storage.save_task(task)
-            
+
             if task.status.value == 'failed' and task.webhook_url:
                 send_webhook_notification.delay(task_id, 'failed')
-        
-        # Retry task if retries available
-        raise self.retry(exc=exc)
+
+        # Only retry retryable errors
+        if _is_retryable_error(exc):
+            raise self.retry(exc=exc)
+        raise
 
 
 @celery_app.task(name='app.core.tasks.send_webhook_notification')
